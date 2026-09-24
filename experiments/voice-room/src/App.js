@@ -123,8 +123,13 @@ async function enter() {
     session = createSession({
       audioContext,
       micStream,
-      onStateChange: (s) => conversation.set(s),
-      onTranscript: (t) => subtitles.show(t),
+      onStateChange: presentState,
+      onTranscript: (t) => {
+        // The user's final transcript often lands after the agent has started;
+        // never let it cover the agent's live caption.
+        if (t.role === 'user' && conversation.get() === 'agent_speaking') return;
+        subtitles.show(t);
+      },
       onRemoteAudioStream: (source) => agentAnalyser.attachAudioSource(source),
       onError: (err) => {
         console.error('[voice-room]', err);
@@ -143,7 +148,23 @@ async function enter() {
   }
 }
 
+// Realtime adapters may emit 'interrupted' and the next state in the same
+// tick. Hold 'interrupted' long enough to be seen; the latest request wins.
+const INTERRUPT_DWELL_MS = 450;
+let pendingState = 0;
+
+function presentState(next) {
+  clearTimeout(pendingState);
+  const wait = INTERRUPT_DWELL_MS - conversation.age();
+  if (conversation.get() === 'interrupted' && wait > 0 && next !== 'idle' && next !== 'error') {
+    pendingState = setTimeout(() => conversation.set(next), wait);
+    return;
+  }
+  conversation.set(next);
+}
+
 function leave() {
+  clearTimeout(pendingState);
   session?.stop();
   session = null;
   micAnalyser?.detachAudioSource();

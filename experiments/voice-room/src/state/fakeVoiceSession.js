@@ -132,7 +132,7 @@ export function createFakeVoiceSession({
     stop() {
       clearTimeout(timer);
       clearInterval(tick);
-      voice.stop();
+      voice.dispose();
       mic.detachAudioSource();
       set('idle');
     },

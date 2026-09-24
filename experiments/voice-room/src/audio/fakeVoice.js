@@ -134,10 +134,19 @@ export function createFakeVoice(ctx, { volume = 0.22 } = {}) {
     });
   }
 
+  // Release the synth graph so repeated sessions do not pile up oscillators.
+  function dispose() {
+    stop();
+    osc.forEach((o) => o.stop());
+    noise.stop();
+    master.disconnect();
+  }
+
   return {
     stream: streamOut.stream,
     speak,
     stop,
+    dispose,
     get speaking() {
       return current !== null;
     },
