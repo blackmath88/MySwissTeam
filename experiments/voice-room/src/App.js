@@ -6,6 +6,7 @@
 import { createConversationState } from './state/conversationState.js';
 import { createFakeVoiceSession } from './state/fakeVoiceSession.js';
 import { createDevControls } from './state/devControls.js';
+import { adaptRealtimeSession } from './state/voiceSessionAdapter.js';
 import { createAudioAnalyser, createSilentFrame, mixFrames } from './audio/audioAnalyser.js';
 import { createVisualField } from './visuals/field.js';
 import { createSubtitles } from './visuals/subtitles.js';
@@ -79,13 +80,15 @@ document.body.dataset.state = conversation.get();
 dev.refresh(conversation.get());
 field.start();
 
-// SYNC-02 seam: the realtime adapter plugs in here with the same callbacks.
-// Opt in with ?voice=realtime once EO-02 ships src/realtime/index.js.
+// SYNC-02 seam: the realtime adapter (EO-02) plugs in here, same callbacks.
+// Opt in with ?voice=realtime; the fake session stays the default until SYNC-02.
 async function loadSessionFactory() {
   if (params.get('voice') === 'realtime') {
     try {
       const mod = await import('./realtime/index.js');
-      if (typeof mod.createVoiceSession === 'function') return mod.createVoiceSession;
+      if (typeof mod.createVoiceSession === 'function') {
+        return (opts) => adaptRealtimeSession(mod.createVoiceSession, opts);
+      }
     } catch (err) {
       console.warn('[voice-room] realtime adapter unavailable, using fake session', err);
     }
@@ -157,6 +160,9 @@ function leave() {
 }
 
 function explain(err) {
+  if (/session request failed|data channel|WebRTC/i.test(err?.message ?? '')) {
+    return 'The voice could not be reached. Try again in a moment.';
+  }
   switch (err?.name) {
     case 'NotAllowedError':
     case 'SecurityError':

@@ -101,5 +101,13 @@ createVoiceSession({
 - `stop()` must release everything the adapter owns and end with `onStateChange('idle')`.
 - After an interruption, emit `interrupted`, then `listening`. The field handles the flash.
 
-EO-02 plugs in by exporting `createVoiceSession` from `src/realtime/index.js`.
-It is then used with `?voice=realtime`. No visual code changes.
+EO-02's `src/realtime/index.js` is already wired in with `?voice=realtime`.
+`src/state/voiceSessionAdapter.js` translates the realtime shape into this one:
+
+- `connect()`/`disconnect()` become `start()`/`stop()`
+- `'assistant'` becomes `'agent'`
+- delta transcripts become cumulative text
+
+It also passes bound `setTimeout`/`clearTimeout`/`fetch` through `runtimeOverrides`,
+because the adapter's default runtime calls them unbound, which browsers reject
+with "Illegal invocation". No visual code depends on the provider.
