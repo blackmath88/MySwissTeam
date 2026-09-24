@@ -1,0 +1,293 @@
+:root {
+  --bg: #050507;
+  --fg: rgba(236, 238, 245, 0.92);
+  --dim: rgba(236, 238, 245, 0.5);
+  --faint: rgba(236, 238, 245, 0.28);
+  --line: rgba(236, 238, 245, 0.16);
+  --font: 'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --gutter: 24px;
+  --fade: 900ms;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+button:focus-visible {
+  outline: 1px solid var(--dim);
+  outline-offset: 4px;
+}
+
+/* ─── The field ─────────────────────────────────────────── */
+
+#field {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  display: block;
+}
+
+.vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 45%, transparent 35%, rgba(0, 0, 0, 0.55) 100%);
+}
+
+/* ─── Entry ─────────────────────────────────────────────── */
+
+#entry {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-start;
+  gap: 14px;
+  padding: calc(var(--safe-top) + 32px) var(--gutter) calc(var(--safe-bottom) + 40px);
+  max-width: 520px;
+  margin: 0 auto;
+  background: linear-gradient(to bottom, transparent 40%, rgba(5, 5, 7, 0.75) 75%);
+  transition: opacity var(--fade) ease, visibility 0s linear 0s;
+}
+
+.in-room #entry {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity var(--fade) ease, visibility 0s linear var(--fade);
+}
+
+.wordmark {
+  margin: 0 0 auto;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.question {
+  margin: 0;
+  font-size: clamp(26px, 7.4vw, 36px);
+  line-height: 1.15;
+  font-weight: 400;
+  letter-spacing: -0.015em;
+  max-width: 16ch;
+  text-wrap: balance;
+}
+
+.topic {
+  margin: 0 0 18px;
+  font-size: 14px;
+  color: var(--dim);
+  letter-spacing: 0.02em;
+}
+
+.enter {
+  width: 100%;
+  min-height: 56px;
+  padding: 0 22px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(236, 238, 245, 0.04);
+  font-size: 16px;
+  letter-spacing: 0.01em;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: background 200ms ease, border-color 200ms ease;
+}
+
+.enter::after {
+  content: '→';
+  color: var(--dim);
+}
+
+.enter:hover,
+.enter:active {
+  background: rgba(236, 238, 245, 0.09);
+  border-color: var(--faint);
+}
+
+.enter:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+.hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.entry-error {
+  margin: 0;
+  min-height: 1.4em;
+  font-size: 13px;
+  color: #f0a39a;
+}
+
+.entry-error:empty {
+  display: none;
+}
+
+/* ─── Room chrome: barely there ─────────────────────────── */
+
+.room-chrome {
+  position: fixed;
+  top: var(--safe-top);
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 8px;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--fade) ease 400ms;
+}
+
+.in-room .room-chrome {
+  opacity: 1;
+  visibility: visible;
+}
+
+.quiet {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 12px 14px;
+  border: 0;
+  background: none;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.quiet:hover {
+  color: var(--dim);
+}
+
+#captions.off {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+/* ─── Subtitles: quiet accessibility layer ──────────────── */
+
+.subtitles {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--safe-bottom) + 36px);
+  width: min(34ch, calc(100vw - 2 * var(--gutter)));
+  transform: translateX(-50%);
+  margin: 0;
+  text-align: center;
+  font-size: 15px;
+  line-height: 1.45;
+  color: rgba(236, 238, 245, 0.7);
+  opacity: 0;
+  transition: opacity 600ms ease;
+  pointer-events: none;
+  text-wrap: balance;
+}
+
+.subtitles.visible {
+  opacity: 1;
+}
+
+.subtitles[data-role='user'] {
+  color: rgba(236, 238, 245, 0.42);
+  font-style: italic;
+}
+
+body:not(.in-room) .subtitles {
+  display: none;
+}
+
+/* ─── Dev panel (temporary until SYNC-02) ───────────────── */
+
+.dev-panel {
+  position: fixed;
+  top: calc(var(--safe-top) + 52px);
+  left: 8px;
+  right: 8px;
+  display: none;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+  z-index: 10;
+}
+
+.dev .dev-panel {
+  display: flex;
+}
+
+.dev-panel button {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgba(5, 5, 7, 0.6);
+  font: 10px/1 var(--mono);
+  color: var(--dim);
+}
+
+.dev-panel button.active {
+  color: var(--bg);
+  background: var(--fg);
+}
+
+/* ─── Utilities ─────────────────────────────────────────── */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (min-width: 720px) {
+  :root {
+    --gutter: 40px;
+  }
+  #entry {
+    padding-bottom: 64px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --fade: 250ms;
+  }
+}
