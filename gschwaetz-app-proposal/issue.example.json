@@ -1,0 +1,12 @@
+{
+  "id": "example-referendum",
+  "title": "Example referendum",
+  "summary": "A short neutral explanation of what is being decided.",
+  "what_changes_if_yes": [],
+  "what_stays_if_no": [],
+  "key_tensions": [
+    "autonomy vs collective responsibility",
+    "short-term cost vs long-term stability"
+  ],
+  "persona_ids": ["lea", "jonas", "noura"]
+}
