@@ -214,6 +214,8 @@ button:focus-visible {
   font-size: 15px;
   line-height: 1.45;
   color: rgba(236, 238, 245, 0.7);
+  /* Keeps captions legible when the agent's spectrum reaches down this far. */
+  text-shadow: 0 0 14px var(--bg), 0 0 4px var(--bg), 0 1px 2px var(--bg);
   opacity: 0;
   transition: opacity 600ms ease;
   pointer-events: none;

@@ -118,3 +118,20 @@ audio track stood in for the agent voice.
 - **Frontend assumptions:** unchanged from the frozen contract.
 - **Known issues:** automated live verification used a deterministic Chrome microphone MediaStream rather than physical hardware. EO-03 prompt remains separate.
 - **What Claude should verify:** no further mock-browser check is required for SYNC-02; perform only the target-device physical mic/speaker pass when available.
+
+---
+
+## Claude — frontend cross-check pass 3 (live) — 2026-09-25
+
+**Commit checked:** `20e3417`. **Browser/viewport:** headless Chrome 390×844 @2x, Chrome fake-device mic (beep), live OpenAI Realtime via same-origin `/session`.
+
+- **Pass:** `npm test` shows 8/8. Static hosting serves `/` and `/src` only; `/.env` and `/server/*` return 404.
+- **Pass (live):** agent speaks first → 4 more agent turns in 26 s, 1 `getUserMedia` call.
+- **Pass (live):** two real barge-ins (the beep hit during playback) show `interrupted` for 450 ms, then `user_speaking` → `thinking` → `agent_speaking`.
+- **Pass (live):** real remote audio drives the field through `attachAudioSource(stream)`; the agent state renders broad and warm with spectral spikes.
+- **Pass (live):** agent captions stream cumulatively and tail-trim correctly; leave → `idle`.
+- **Frontend fix (Claude):** caption text-shadow, because agent spikes can reach the caption area at 390×844.
+- **Not covered:** physical mic/speaker and iOS Safari permission/playback. That needs a human device pass.
+  Replies are generic until EO-03's prompt is integrated.
+
+**SYNC-02 from the UX side:** ready, pending a quick physical-device pass on the target phone.
