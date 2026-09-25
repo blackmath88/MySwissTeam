@@ -68,3 +68,20 @@ test("session endpoint keeps the key server-side and returns SDP", async () => {
     false,
   );
 });
+
+test("server hosts the experience and session endpoint on one safe origin", async () => {
+  await withServer(createApp({ apiKey: "" }), async (baseUrl) => {
+    const page = await fetch(`${baseUrl}/?voice=realtime`);
+    assert.equal(page.status, 200);
+    assert.match(await page.text(), /<title>Gschwätz<\/title>/);
+
+    const appModule = await fetch(`${baseUrl}/src/App.js`);
+    assert.equal(appModule.status, 200);
+
+    const envFile = await fetch(`${baseUrl}/.env`);
+    assert.equal(envFile.status, 404);
+
+    const serverSource = await fetch(`${baseUrl}/server/app.js`);
+    assert.equal(serverSource.status, 404);
+  });
+});

@@ -1,13 +1,17 @@
 import express from "express";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 
 import { createSessionConfig } from "./sessionConfig.js";
 
 const OPENAI_REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
+const DEFAULT_STATIC_ROOT = fileURLToPath(new URL("../", import.meta.url));
 
 export function createApp({
   apiKey = process.env.OPENAI_API_KEY,
   environment = process.env,
   fetchImpl = globalThis.fetch,
+  staticRoot = DEFAULT_STATIC_ROOT,
 } = {}) {
   const app = express();
 
@@ -74,6 +78,18 @@ export function createApp({
     } finally {
       clearTimeout(timeout);
     }
+  });
+
+  app.use(
+    "/src",
+    express.static(path.join(staticRoot, "src"), {
+      dotfiles: "deny",
+      fallthrough: false,
+    }),
+  );
+
+  app.get(["/", "/index.html"], (_request, response) => {
+    response.sendFile(path.join(staticRoot, "index.html"));
   });
 
   return app;

@@ -36,6 +36,7 @@ class FakePeerConnection extends EventTarget {
   constructor() {
     super();
     this.connectionState = "new";
+    this.iceGatheringState = "complete";
     this.channel = new FakeDataChannel();
     this.senders = [];
     FakePeerConnection.instances.push(this);
@@ -59,7 +60,10 @@ class FakePeerConnection extends EventTarget {
 
   async setRemoteDescription(description) {
     this.remoteDescription = description;
-    queueMicrotask(() => this.channel.open());
+    queueMicrotask(() => {
+      this.channel.open();
+      this.channel.emitMessage({ type: "session.created" });
+    });
   }
 
   emitRemoteStream(stream) {
@@ -103,6 +107,7 @@ function createRuntime() {
       createAudioElement: () => audioElement,
       setTimeout,
       clearTimeout,
+      randomUUID: () => "test-event-id",
     },
   };
 }
@@ -132,6 +137,7 @@ test("adapter connects, exposes audio, transcripts two-way, and maps VAD states"
     type: "answer",
     sdp: "answer-sdp",
   });
+  assert.equal(JSON.parse(channel.sent[0]).type, "response.create");
 
   const remoteStream = { id: "remote" };
   peer.emitRemoteStream(remoteStream);
@@ -149,11 +155,14 @@ test("adapter connects, exposes audio, transcripts two-way, and maps VAD states"
     type: "response.output_audio_transcript.delta",
     delta: "Hi",
   });
+  channel.emitMessage({ type: "output_audio_buffer.started" });
   channel.emitMessage({
     type: "response.output_audio_transcript.done",
     transcript: "Hi there",
   });
   channel.emitMessage({ type: "response.done", response: { status: "completed" } });
+  assert.equal(session.getState(), "agent_speaking");
+  channel.emitMessage({ type: "output_audio_buffer.stopped" });
 
   assert.deepEqual(states.slice(-4), [
     "user_speaking",
@@ -176,6 +185,7 @@ test("adapter connects, exposes audio, transcripts two-way, and maps VAD states"
   ]);
 
   session.disconnect();
+  assert.equal(session.getState(), "idle");
 });
 
 test("disconnect stops the microphone and reconnect creates a fresh peer", async () => {
@@ -190,5 +200,53 @@ test("disconnect stops the microphone and reconnect creates a fresh peer", async
   await session.reconnect();
   assert.equal(FakePeerConnection.instances.length, 2);
   assert.equal(session.getState(), "listening");
+  session.disconnect();
+});
+
+test("a provided microphone stream is reused and remains caller-owned", async () => {
+  FakePeerConnection.instances = [];
+  const { localStream, runtime } = createRuntime();
+  let microphoneRequests = 0;
+  runtime.mediaDevices.getUserMedia = async () => {
+    microphoneRequests += 1;
+    return localStream;
+  };
+
+  const states = [];
+  const session = createVoiceSession(
+    {
+      micStream: localStream,
+      onStateChange: (state) => states.push(state),
+    },
+    runtime,
+  );
+
+  await session.connect();
+  session.disconnect();
+
+  assert.equal(microphoneRequests, 0);
+  assert.equal(localStream.tracks[0].stopped, false);
+  assert.equal(states.at(-1), "idle");
+});
+
+test("a cleared cancelled response recovers from interrupted to listening", async () => {
+  FakePeerConnection.instances = [];
+  const { runtime } = createRuntime();
+  const states = [];
+  const session = createVoiceSession(
+    { onStateChange: (state) => states.push(state) },
+    runtime,
+  );
+
+  await session.connect();
+  const channel = FakePeerConnection.instances[0].channel;
+  channel.emitMessage({ type: "response.created" });
+  channel.emitMessage({ type: "output_audio_buffer.started" });
+  channel.emitMessage({ type: "response.done", response: { status: "cancelled" } });
+  assert.equal(session.getState(), "interrupted");
+
+  channel.emitMessage({ type: "output_audio_buffer.cleared" });
+  assert.equal(session.getState(), "listening");
+  assert.deepEqual(states.slice(-2), ["interrupted", "listening"]);
   session.disconnect();
 });

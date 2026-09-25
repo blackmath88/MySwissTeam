@@ -1,4 +1,5 @@
 export const VOICE_SESSION_STATES = Object.freeze([
+  "idle",
   "connecting",
   "listening",
   "user_speaking",
@@ -16,10 +17,11 @@ function defaultRuntime() {
   return {
     RTCPeerConnection: globalThis.RTCPeerConnection,
     mediaDevices: globalThis.navigator?.mediaDevices,
-    fetch: globalThis.fetch,
+    fetch: (...args) => globalThis.fetch(...args),
     createAudioElement: () => document.createElement("audio"),
-    setTimeout: globalThis.setTimeout,
-    clearTimeout: globalThis.clearTimeout,
+    setTimeout: (...args) => globalThis.setTimeout(...args),
+    clearTimeout: (...args) => globalThis.clearTimeout(...args),
+    randomUUID: () => globalThis.crypto.randomUUID(),
   };
 }
 
@@ -43,18 +45,22 @@ export function createVoiceSession(
     onRemoteAudioStream = noop,
     onError = noop,
     sessionEndpoint = "/session",
+    micStream: providedMicStream = null,
+    openingResponse = null,
   } = {},
   runtimeOverrides = {},
 ) {
   const runtime = { ...defaultRuntime(), ...runtimeOverrides };
 
-  let state = null;
+  let state = "idle";
   let peerConnection = null;
   let dataChannel = null;
   let localStream = null;
   let remoteStream = null;
   let audioElement = null;
   let responseActive = false;
+  let audioPlaybackActive = false;
+  let ownsLocalStream = false;
   let deliberatelyDisconnected = false;
   let connectPromise = null;
 
@@ -82,8 +88,10 @@ export function createVoiceSession(
   function handleRealtimeEvent(event) {
     switch (event.type) {
       case "session.created":
-      case "session.updated":
         if (state === "connecting") setState("listening");
+        break;
+
+      case "session.updated":
         break;
 
       case "input_audio_buffer.speech_started":
@@ -106,6 +114,23 @@ export function createVoiceSession(
       case "response.output_audio.delta":
         responseActive = true;
         setState("agent_speaking");
+        break;
+
+      case "output_audio_buffer.started":
+        audioPlaybackActive = true;
+        setState("agent_speaking");
+        break;
+
+      case "output_audio_buffer.stopped":
+        audioPlaybackActive = false;
+        if (state !== "user_speaking") setState("listening");
+        break;
+
+      case "output_audio_buffer.cleared":
+        audioPlaybackActive = false;
+        if (["interrupted", "agent_speaking"].includes(state)) {
+          setState("listening");
+        }
         break;
 
       case "conversation.item.input_audio_transcription.delta":
@@ -132,7 +157,9 @@ export function createVoiceSession(
         if (wasCancelled && state !== "user_speaking") {
           setState("interrupted");
         }
-        if (state !== "user_speaking") setState("listening");
+        if (!audioPlaybackActive && state !== "user_speaking") {
+          setState("listening");
+        }
         break;
       }
 
@@ -157,8 +184,11 @@ export function createVoiceSession(
   }
 
   function stopMedia() {
-    for (const track of localStream?.getTracks?.() || []) track.stop();
+    if (ownsLocalStream) {
+      for (const track of localStream?.getTracks?.() || []) track.stop();
+    }
     localStream = null;
+    ownsLocalStream = false;
 
     if (audioElement) {
       audioElement.pause?.();
@@ -169,10 +199,11 @@ export function createVoiceSession(
     remoteStream = null;
   }
 
-  function disconnect() {
+  function cleanup({ emitIdle }) {
     deliberatelyDisconnected = true;
     connectPromise = null;
     responseActive = false;
+    audioPlaybackActive = false;
 
     if (dataChannel) {
       dataChannel.removeEventListener?.("message", handleDataMessage);
@@ -183,7 +214,11 @@ export function createVoiceSession(
     stopMedia();
     peerConnection?.close();
     peerConnection = null;
-    state = null;
+    if (emitIdle) setState("idle");
+  }
+
+  function disconnect() {
+    cleanup({ emitIdle: true });
   }
 
   async function openSession() {
@@ -193,7 +228,7 @@ export function createVoiceSession(
     if (!runtime.RTCPeerConnection) {
       throw new Error("WebRTC is not supported in this browser.");
     }
-    if (!runtime.mediaDevices?.getUserMedia) {
+    if (!providedMicStream && !runtime.mediaDevices?.getUserMedia) {
       throw new Error("Microphone capture is not supported in this browser.");
     }
     if (!runtime.fetch) {
@@ -231,14 +266,23 @@ export function createVoiceSession(
       }
     });
 
-    localStream = await runtime.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    });
-    for (const track of localStream.getAudioTracks()) {
+    localStream = providedMicStream;
+    if (!localStream) {
+      ownsLocalStream = true;
+      localStream = await runtime.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+    }
+
+    const audioTracks = localStream.getAudioTracks?.() || [];
+    if (audioTracks.length === 0) {
+      throw new Error("The microphone stream has no audio track.");
+    }
+    for (const track of audioTracks) {
       pc.addTrack(track, localStream);
     }
 
@@ -271,13 +315,31 @@ export function createVoiceSession(
       );
     });
 
+    const sessionReady = new Promise((resolve, reject) => {
+      const timeout = runtime.setTimeout(() => {
+        reject(new Error("Realtime session readiness timed out."));
+      }, OPEN_TIMEOUT_MS);
+      const handleReady = (event) => {
+        try {
+          if (JSON.parse(event.data).type !== "session.created") return;
+          runtime.clearTimeout(timeout);
+          dc.removeEventListener("message", handleReady);
+          resolve();
+        } catch {
+          // The main event handler reports malformed events.
+        }
+      };
+      dc.addEventListener("message", handleReady);
+    });
+
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
+    await waitForIceGatheringComplete(pc, runtime);
 
     const sessionResponse = await runtime.fetch(sessionEndpoint, {
       method: "POST",
       headers: { "Content-Type": "application/sdp" },
-      body: offer.sdp,
+      body: pc.localDescription?.sdp || offer.sdp,
     });
     const answerSdp = await sessionResponse.text();
 
@@ -288,15 +350,16 @@ export function createVoiceSession(
     }
 
     await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
-    await opened;
+    await Promise.all([opened, sessionReady]);
+
+    if (openingResponse !== false) requestResponse(openingResponse);
   }
 
   function connect() {
     if (connectPromise) return connectPromise;
     connectPromise = openSession().catch((error) => {
       const normalized = reportError(error, "Unable to connect voice session.");
-      disconnect();
-      state = "error";
+      cleanup({ emitIdle: false });
       throw normalized;
     });
     return connectPromise;
@@ -312,8 +375,14 @@ export function createVoiceSession(
       throw new Error("Realtime data channel is not open.");
     }
     dataChannel.send(
-      JSON.stringify({ event_id: crypto.randomUUID(), ...event }),
+      JSON.stringify({ event_id: runtime.randomUUID(), ...event }),
     );
+  }
+
+  function requestResponse(response = {}) {
+    const event = { type: "response.create" };
+    if (response && Object.keys(response).length > 0) event.response = response;
+    sendEvent(event);
   }
 
   return {
@@ -321,8 +390,31 @@ export function createVoiceSession(
     disconnect,
     reconnect,
     sendEvent,
+    requestResponse,
     getState: () => state,
     getLocalAudioStream: () => localStream,
     getRemoteAudioStream: () => remoteStream,
   };
+}
+
+function waitForIceGatheringComplete(peerConnection, runtime) {
+  if (peerConnection.iceGatheringState === "complete") {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    const timeout = runtime.setTimeout(done, 2_000);
+
+    function done() {
+      runtime.clearTimeout(timeout);
+      peerConnection.removeEventListener?.("icegatheringstatechange", onChange);
+      resolve();
+    }
+
+    function onChange() {
+      if (peerConnection.iceGatheringState === "complete") done();
+    }
+
+    peerConnection.addEventListener("icegatheringstatechange", onChange);
+  });
 }
